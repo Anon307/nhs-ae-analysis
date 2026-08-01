@@ -200,6 +200,24 @@ zero_att = df[df["total_attendances"] == 0]
 print(f"    {len(zero_att)} trust-months with zero attendances")
 print(f"    (These are typically specialist trusts — noted, not removed)")
 
+# Check 6: Zero recorded breaches against a substantial Type 1 caseload.
+# A large A&E reporting not one patient over four hours in a month is not
+# credible; it is a non-submission being read as a zero. Check 4 cannot catch
+# these because they produce exactly 100%, not above 100%.
+print("\n  [CHECK 6] Zero recorded breaches against a substantial caseload:")
+zero_breach = df[(df["att_type1"] > 500) & (df["over4hr_type1"] == 0)]
+print(f"    {len(zero_breach)} trust-months reporting 100% with >500 Type 1 attendances")
+if len(zero_breach) > 0:
+    affected = zero_breach["att_type1"].sum()
+    months = sorted(zero_breach["date"].dt.strftime("%b %Y").unique())
+    print(f"    Attendances sitting in those rows: {affected:,}")
+    print(f"    Months affected: {', '.join(months)}")
+    print(f"    Treated as missing rather than 100% — see README")
+    quality_issues.append(
+        f"Zero-breach non-submissions: {len(zero_breach)} trust-months "
+        f"({affected:,} attendances) reporting an implausible 100%"
+    )
+
 # Summary
 print(f"\n  QUALITY SUMMARY: {len(quality_issues)} issue types identified")
 for i, issue in enumerate(quality_issues, 1):

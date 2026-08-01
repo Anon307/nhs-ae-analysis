@@ -38,6 +38,7 @@ on.exit(dbDisconnect(con), add = TRUE)
 
 trust <- dbGetQuery(con, "
   SELECT date, org_code, org_name,
+         att_type1, over4hr_type1,
          total_attendances, total_over4hr, type1_4hr_pct,
          wait_12hr_plus_dta, total_emerg_adm
   FROM ae_monthly_trust
@@ -71,7 +72,14 @@ qa <- list(
   breaches_exceed_att = sum(trust$total_over4hr > trust$total_attendances,
                             na.rm = TRUE),
   pct_above_100       = sum(trust$type1_4hr_pct > 100, na.rm = TRUE),
-  pct_below_50        = sum(trust$type1_4hr_pct < 50, na.rm = TRUE)
+  pct_below_50        = sum(trust$type1_4hr_pct < 50, na.rm = TRUE),
+  zero_breach         = sum(trust$att_type1 > 500 & trust$over4hr_type1 == 0,
+                            na.rm = TRUE),
+  renamed_orgs        = trust %>%
+                          distinct(org_code, org_name) %>%
+                          count(org_code) %>%
+                          filter(n > 1) %>%
+                          nrow()
 )
 
 message("\nData quality checks")
@@ -83,6 +91,10 @@ message(sprintf("  Breaches exceeding attendances:  %s", qa$breaches_exceed_att)
 message(sprintf("  Performance above 100%%:          %s", qa$pct_above_100))
 message(sprintf("  Trust-months below 50%%:          %s (flagged for review, not an error)",
                 format(qa$pct_below_50, big.mark = ",")))
+message(sprintf("  Zero-breach non-submissions:      %s trust-months reporting an implausible 100%%",
+                qa$zero_breach))
+message(sprintf("  Org codes with more than one name: %s (renamed mid-period - group on code, never name)",
+                qa$renamed_orgs))
 
 stopifnot(qa$negative_values == 0,
           qa$breaches_exceed_att == 0,
@@ -110,15 +122,29 @@ message(sprintf("  12-hour DTA waits:              %s (%s) rising to a peak of %
 # 4. Trust ranking
 #    Ranked only across providers that report Type 1 performance, since
 #    providers without a Type 1 department are not comparable.
+#
+#    Group on org_code ALONE. Four trusts changed name mid-period (RAX, RWD,
+#    RXF, RBN), so grouping on org_code AND org_name splits them into two
+#    organisations each - inflating the provider count from 123 to 127 and
+#    producing spurious short-series entries at the top of the ranking. The
+#    reporting name is taken from the most recent month for each code.
 # ---------------------------------------------------------------------------
+
+latest_name <- trust %>%
+  filter(!is.na(org_name)) %>%
+  group_by(org_code) %>%
+  slice_max(date, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(org_code, org_name)
 
 ranking <- trust %>%
   filter(!is.na(type1_4hr_pct)) %>%
-  group_by(org_code, org_name) %>%
+  group_by(org_code) %>%
   summarise(mean_4hr = mean(type1_4hr_pct),
             mean_att = mean(total_attendances),
             months   = n(),
             .groups  = "drop") %>%
+  left_join(latest_name, by = "org_code") %>%
   arrange(desc(mean_4hr)) %>%
   mutate(rank = row_number())
 
@@ -179,4 +205,47 @@ ggsave(file.path(OUT_DIR, "chart5_r_4hr_performance.png"), p,
        width = 10, height = 5.5, dpi = 150)
 
 message(sprintf("\nChart written to %s", file.path(OUT_DIR, "chart5_r_4hr_performance.png")))
-message("R validation complete - figures agree with the Python pipeline.")
+
+# ---------------------------------------------------------------------------
+# 7. Reconciliation against the Python pipeline
+#    These are the figures quoted in the README and the stakeholder summary.
+#    The script must fail loudly if R disagrees, rather than printing a
+#    reassuring message regardless of the result - which is what an earlier
+#    version of this script did, masking a real grouping defect.
+# ---------------------------------------------------------------------------
+
+expected <- list(
+  rows        = 4796,
+  providers   = 207,
+  nat_4hr     = 58.82,
+  rtf_4hr     = 74.44,
+  rtf_rank    = 6,
+  ranked_orgs = 123
+)
+
+actual <- list(
+  rows        = nrow(trust),
+  providers   = n_distinct(trust$org_code),
+  nat_4hr     = round(nat_avg_pct, 2),
+  rtf_4hr     = round(target$mean_4hr, 2),
+  rtf_rank    = target$rank,
+  ranked_orgs = nrow(ranking)
+)
+
+message("\nReconciliation against the Python pipeline")
+mismatches <- character(0)
+for (k in names(expected)) {
+  ok <- isTRUE(all.equal(expected[[k]], actual[[k]], tolerance = 1e-6))
+  message(sprintf("  %-12s expected %-10s got %-10s %s",
+                  k, expected[[k]], actual[[k]], if (ok) "OK" else "MISMATCH"))
+  if (!ok) mismatches <- c(mismatches, k)
+}
+
+if (length(mismatches) > 0) {
+  stop("R output disagrees with the Python pipeline on: ",
+       paste(mismatches, collapse = ", "),
+       "\nOne of the two implementations is wrong. Do not quote these figures ",
+       "until the discrepancy is resolved.")
+}
+
+message("\nR validation complete - all reconciliation checks passed.")

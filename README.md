@@ -59,7 +59,7 @@ nhs_ae_project/
 - Standardises trust names and org codes to uppercase
 
 ### 3. Data Quality Checks
-Five structured checks with documented outputs:
+Six structured checks with documented outputs:
 
 | Check | Finding |
 |---|---|
@@ -68,6 +68,7 @@ Five structured checks with documented outputs:
 | Breaches exceeding attendances | None found |
 | 4-hour performance outliers (<50%) | 589 trust-months flagged — documented, not removed |
 | Performance >100% (impossible) | None found |
+| Zero breaches against a substantial caseload | **28 trust-months** reporting exactly 100% — see below |
 
 ### 4. Metric Derivation
 - `total_attendances`: sum of Type 1, Type 2, and Other attendances
@@ -119,6 +120,20 @@ The same national performance series rendered independently in R, produced by `a
 `analysis.R` connects to the same SQLite database via `DBI`/`RSQLite` and independently recomputes every headline figure using `dplyr`, rather than reusing any Python output. It repeats the five data quality checks, recalculates the national mean, the trust ranking and the year-on-year comparison, and renders a `ggplot2` chart of national performance.
 
 The purpose is verification rather than duplication: two independent implementations agreeing on the same numbers is stronger evidence that the figures are right than one implementation on its own. Any divergence between `pipeline.py` and `analysis.R` output signals a defect in one of them.
+
+The script ends by reconciling six headline figures against the values quoted in this README, and **fails with an error** if any disagree. An earlier version printed a reassuring "figures agree" message unconditionally, which masked a real defect on its first run — the check now has to actually pass.
+
+### What the cross-check found
+
+The first run of the R layer disagreed with Python: it reported Northumbria 7th of 127 providers rather than 6th of 123, and put Mid Yorkshire top of the table at exactly 100.0%. Two separate problems were behind that.
+
+**1. A grouping defect in the R code.** The ranking grouped on `org_code` *and* `org_name`. Four trusts changed name during the period — RAX, RWD, RXF and RBN — so each was split into two organisations, inflating the provider count and creating short-series entries that rose to the top of the ranking. Mid Yorkshire's single April 2023 row under its former name became its own "trust" with one month of data. Fixed by grouping on `org_code` alone and taking the reporting name from the most recent month.
+
+**2. A real defect in the published data.** 28 trust-months report Type 1 attendances but exactly **zero** four-hour breaches, producing a performance figure of 100.0%. These are concentrated entirely in April and May 2023 and include Frimley Health, Chelsea and Westminster, Nottingham University Hospitals, Imperial College Healthcare and Cambridge University Hospitals — none of which plausibly saw every patient inside four hours across a month of 15,000–20,000 attendances. They are non-submissions recorded as zeroes. 325,033 Type 1 attendances sit in those rows.
+
+The existing outlier check could not catch this: it tested for performance *above* 100%, and these rows sit exactly *at* 100%. Check 6 was added to cover it.
+
+Excluding the affected rows moves the national mean from 58.82% to 58.41% — a 0.41 percentage point overstatement. Northumbria's rank of 6th is unaffected. The headline figures in this repository are reported on the published data as-is, with this caveat documented rather than silently corrected.
 
 ```bash
 Rscript analysis.R
