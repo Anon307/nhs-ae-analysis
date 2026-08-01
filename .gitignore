@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Superseded chart copies at repo root - the current versions live in charts/
+/chart1_national_attendances.png
+/chart2_4hr_performance.png
+/chart3_northumbria_vs_national.png
+/chart4_12hr_waits.png
+
+# Raw NHS England CSVs - download directly from the source, not tracked here
+data/raw/
+
+# Generated database - rebuild with `python3 pipeline.py`
+data/*.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# R
+.Rhistory
+.RData
+.Rproj.user/

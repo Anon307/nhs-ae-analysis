@@ -16,8 +16,8 @@ NHS England publishes monthly A&E attendance and emergency admissions data at tr
 ## Key Findings
 
 - England's national average Type 1 A&E 4-hour performance was **58.8%** across the 24-month period — significantly below the **95% NHS target**
-- Patients waiting **12+ hours** from Decision to Admit rose from ~27,000/month (April 2023) to over **61,000/month** (January 2025) — a worsening patient safety trend
-- **Northumbria Healthcare NHS Foundation Trust** averaged **74.4%** 4-hour performance — **15.6 percentage points above the national average**, ranking 6th best trust in England
+- Patients waiting **12+ hours** from Decision to Admit rose from **26,492** in April 2023 to a peak of **61,529** in January 2025 — a worsening patient safety trend
+- **Northumbria Healthcare NHS Foundation Trust** averaged **74.4%** 4-hour performance — **15.6 percentage points above the national average**, ranking **6th of the 123 providers** that report Type 1 performance
 - Total monthly A&E attendances across England averaged **2.16 million**, remaining broadly stable across both financial years
 
 ---
@@ -29,6 +29,7 @@ nhs_ae_project/
 ├── pipeline.py              # Main data pipeline: ingest, clean, validate, aggregate, chart
 ├── fix_charts.py            # Chart refinement with proper x-axis labels and annotations
 ├── sql_queries.py           # 6 SQL analytical queries on the cleaned SQLite database
+├── analysis.R               # R validation layer: reproduces headline figures independently
 ├── charts/
 │   ├── chart1_national_attendances.png
 │   ├── chart2_4hr_performance.png
@@ -108,6 +109,23 @@ Trust-level comparison showing Northumbria Healthcare consistently outperforming
 ### Chart 4 — 12-Hour Waits from Decision to Admit
 Monthly counts of patients waiting 12+ hours post-DTA, with trend line showing deterioration over the period.
 
+### Chart 5 — National 4-Hour Performance (R / ggplot2)
+The same national performance series rendered independently in R, produced by `analysis.R` as part of the cross-toolchain validation described below.
+
+---
+
+## R Validation Layer
+
+`analysis.R` connects to the same SQLite database via `DBI`/`RSQLite` and independently recomputes every headline figure using `dplyr`, rather than reusing any Python output. It repeats the five data quality checks, recalculates the national mean, the trust ranking and the year-on-year comparison, and renders a `ggplot2` chart of national performance.
+
+The purpose is verification rather than duplication: two independent implementations agreeing on the same numbers is stronger evidence that the figures are right than one implementation on its own. Any divergence between `pipeline.py` and `analysis.R` output signals a defect in one of them.
+
+```bash
+Rscript analysis.R
+```
+
+Requires `DBI`, `RSQLite`, `dplyr`, `ggplot2` and `scales`. Run `pipeline.py` first to build the database.
+
 ---
 
 ## Power BI Dashboard
@@ -132,6 +150,7 @@ A two-page dashboard built in Power BI Desktop:
 | Matplotlib | Chart generation |
 | SQLite3 | Structured query analysis |
 | SQL | Aggregation, ranking, year-on-year comparison |
+| R (DBI, RSQLite, dplyr, ggplot2) | Independent validation of headline figures and charting |
 | Power BI Desktop | Interactive dashboard |
 | Git | Version control |
 
@@ -159,6 +178,9 @@ python3 sql_queries.py
 
 # 6. Regenerate charts (optional)
 python3 fix_charts.py
+
+# 7. Run the R validation layer
+Rscript analysis.R
 ```
 
 ---
